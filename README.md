@@ -212,7 +212,7 @@ It showcases:
 
 ## 👩‍💻 Author
 
-**Swetha Siripurapu**
+**Vinay Gupta Kandula**
 B.Tech – 3rd Year
 Blockchain & Backend Development Enthusiast
 
