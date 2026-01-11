@@ -21,7 +21,7 @@ describe("Upgrade V2 to V3", function () {
     );
     await vaultV1.deployed();
 
-    // User deposit
+    // User deposit: 100 tokens - 5% fee = 95 tokens credited
     await token.transfer(user.address, ethers.utils.parseEther("100"));
     await token.connect(user).approve(vaultV1.address, ethers.utils.parseEther("100"));
     await vaultV1.connect(user).deposit(ethers.utils.parseEther("100"));
@@ -38,8 +38,12 @@ describe("Upgrade V2 to V3", function () {
   });
 
   it("should preserve all V2 state after upgrade", async function () {
+    // Principal should be exactly 95 tokens (100 - 5% fee)
     const balance = await vaultV3.balanceOf(user.address);
     expect(balance).to.equal(ethers.utils.parseEther("95"));
+    
+    // Verify yield rate was preserved from V2
+    expect(await vaultV3.getYieldRate()).to.equal(500);
   });
 
   it("should allow setting withdrawal delay", async function () {
@@ -48,41 +52,66 @@ describe("Upgrade V2 to V3", function () {
   });
 
   it("should handle withdrawal requests correctly", async function () {
-    await vaultV3.connect(user).requestWithdrawal(
-      ethers.utils.parseEther("10")
-    );
+    const amount = ethers.utils.parseEther("100"); // Attempting to request more than balance
+    await expect(
+        vaultV3.connect(user).requestWithdrawal(amount)
+    ).to.be.revertedWith("Insufficient balance");
 
+    await vaultV3.connect(user).requestWithdrawal(ethers.utils.parseEther("10"));
     const req = await vaultV3.getWithdrawalRequest(user.address);
     expect(req.amount).to.equal(ethers.utils.parseEther("10"));
   });
 
   it("should enforce withdrawal delay", async function () {
-    await vaultV3.connect(user).requestWithdrawal(
-      ethers.utils.parseEther("10")
-    );
+    await vaultV3.connect(user).requestWithdrawal(ethers.utils.parseEther("10"));
 
     await expect(
       vaultV3.connect(user).executeWithdrawal()
     ).to.be.revertedWith("Withdrawal delay not passed");
   });
+
   it("should prevent premature withdrawal execution", async function () {
-  await vaultV3.connect(user).requestWithdrawal(
-    ethers.utils.parseEther("10")
-  );
+    await vaultV3.connect(user).requestWithdrawal(ethers.utils.parseEther("10"));
 
-  await ethers.provider.send("evm_increaseTime", [1]);
-  await ethers.provider.send("evm_mine");
+    // Increase time but not enough to meet the 10s delay
+    await ethers.provider.send("evm_increaseTime", [5]);
+    await ethers.provider.send("evm_mine");
 
-  await expect(
-    vaultV3.connect(user).executeWithdrawal()
-  ).to.be.revertedWith("Withdrawal delay not passed");
-});
-it("should allow emergency withdrawals", async function () {
-  await vaultV3.connect(user).emergencyWithdraw();
+    await expect(
+      vaultV3.connect(user).executeWithdrawal()
+    ).to.be.revertedWith("Withdrawal delay not passed");
+  });
 
-  const balance = await vaultV3.balanceOf(user.address);
-  expect(balance).to.equal(0);
-});
+  it("should allow execution after delay and follow CEI pattern", async function () {
+    const withdrawAmount = ethers.utils.parseEther("10");
+    await vaultV3.connect(user).requestWithdrawal(withdrawAmount);
 
- 
+    // Meet the 10s delay
+    await ethers.provider.send("evm_increaseTime", [11]);
+    await ethers.provider.send("evm_mine");
+
+    const initialBalance = await vaultV3.balanceOf(user.address);
+    await vaultV3.connect(user).executeWithdrawal();
+    
+    const finalBalance = await vaultV3.balanceOf(user.address);
+    expect(finalBalance).to.equal(initialBalance.sub(withdrawAmount));
+    
+    // Request should be deleted (CEI check)
+    const req = await vaultV3.getWithdrawalRequest(user.address);
+    expect(req.amount).to.equal(0);
+  });
+
+  it("should allow emergency withdrawals and clear pending requests", async function () {
+    // Setup a request first
+    await vaultV3.connect(user).requestWithdrawal(ethers.utils.parseEther("10"));
+    
+    // Emergency withdraw should bypass delay and clear the request
+    await vaultV3.connect(user).emergencyWithdraw();
+
+    const balance = await vaultV3.balanceOf(user.address);
+    expect(balance).to.equal(0);
+    
+    const req = await vaultV3.getWithdrawalRequest(user.address);
+    expect(req.amount).to.equal(0);
+  });
 });

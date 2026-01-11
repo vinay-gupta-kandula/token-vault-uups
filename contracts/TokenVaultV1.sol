@@ -8,6 +8,12 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
+/**
+ * @title TokenVaultV1
+ * @author Vinay Gupta Kandula
+ * @notice Basic vault for ERC20 deposits and withdrawals with a deposit fee.
+ * @dev Implements UUPS upgradeability and role-based access control.
+ */
 contract TokenVaultV1 is
     Initializable,
     UUPSUpgradeable,
@@ -15,8 +21,9 @@ contract TokenVaultV1 is
     ReentrancyGuardUpgradeable
 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-     constructor() {
+    constructor() {
         _disableInitializers();
     }
 
@@ -25,12 +32,14 @@ contract TokenVaultV1 is
 
     // ================= STORAGE =================
     IERC20Upgradeable internal token;
-    uint256 internal depositFee; // basis points
+    uint256 internal depositFee;
     uint256 internal _totalDeposits;
     mapping(address => uint256) internal balances;
 
-    // Storage gap for future upgrades
-    uint256[50] private __gap;
+    /**
+     * @dev Storage gap for V1. Internal to allow visibility in children.
+     */
+    uint256[50] internal __gapV1;
 
     // ================= INITIALIZER =================
     function initialize(
@@ -73,24 +82,17 @@ contract TokenVaultV1 is
         return depositFee;
     }
 
-    function getImplementationVersion()
-        external
-        pure
-        virtual
-        returns (string memory)
-    {
+    function getImplementationVersion() external pure virtual returns (string memory) {
         return "V1";
     }
 
     // ================= DEPOSIT =================
     function deposit(uint256 amount) public virtual nonReentrant {
         require(amount > 0, "Amount must be > 0");
-
         uint256 fee = (amount * depositFee) / 10_000;
         uint256 netAmount = amount - fee;
 
         token.safeTransferFrom(msg.sender, address(this), amount);
-
         balances[msg.sender] += netAmount;
         _totalDeposits += netAmount;
     }
@@ -102,7 +104,6 @@ contract TokenVaultV1 is
 
         balances[msg.sender] -= amount;
         _totalDeposits -= amount;
-
         token.safeTransfer(msg.sender, amount);
     }
 }
