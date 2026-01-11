@@ -1,0 +1,12 @@
+setup:
+  commands:
+    - npm install
+
+test:
+  commands:
+    - npx hardhat compile
+    - npx hardhat test
+
+verify:
+  commands:
+    - npx hardhat test
